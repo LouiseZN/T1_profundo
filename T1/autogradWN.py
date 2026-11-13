@@ -243,11 +243,17 @@ class Tensor:
     def __call__(self, outro):
         return self @ outro
     
-    def __getitem__(self, indice): # Permite indexarmos um vetor como no numpy, ou sej podemos ter tensor[2:, 1]
+    # Permite indexarmos um vetor como no numpy, ou sej podemos ter tensor[2:, 1]
+    def __getitem__(self, indice):
         resultado = self.peso[indice]
 
         retorno = Tensor(resultado.shape, (self,))
         retorno.peso = resultado
+
+        def regra():
+            np.add.at(self.gradiente, indice, retorno.gradiente) # Um metodo do numpy para fazer soma de valores de dois arrays batendo corretamente os indices
+
+        retorno.regra = regra
 
         return retorno
 
