@@ -99,7 +99,9 @@ class Tensor:
         return outra + (-self)   
         
     def __truediv__(self, other):
-        return self.__mul__( other**-1)
+        if isinstance(other, (int, float, np.number)):
+            return self * (1 / other)
+        return self * (other ** -1)
     
     def __rtruediv__(self, other):
         return (self **-1) * other
@@ -169,11 +171,11 @@ class Tensor:
     # Funções de ativação
 
     def reLU(self):
-        retorno = Tensor(self.peso.sselfape, (self,))
+        retorno = Tensor(self.peso.shape, (self,))
         retorno.peso = np.where(self.peso>0, self.peso, 0)
 
         def regra():
-            self.gradiente += (self.peso > 0) *retorno.gradiente
+            self.gradiente += (self.peso > 0) * retorno.gradiente
 
         retorno.regra = regra
 
@@ -237,22 +239,55 @@ class Tensor:
         
         for nodo in reversed(topo):
             nodo.regra()
+            
+    def __call__(self, outro):
+        return self @ outro
 
 
 
-def Dense(input, output, inicializacao, limite_inferior=0, limite_superior=1, desvio_padrao=1, media=0):
+def Dense(input, output, inicializacao = "He", limite_inferior=0, limite_superior=1, desvio_padrao=1, media=0):
     matriz = Tensor([input, output])
     
     if inicializacao == "He":
-        matriz.peso = np.random.normal(0,np.sqrt( 2/input, size=(input,output)))
+        matriz.peso = np.random.normal(0,
+                                       np.sqrt( 2/input),
+                                       size=(input,output))
     elif inicializacao == "Xavier":
-        matriz.peso = np.random.normal(0,np.sqrt( 2/(input+output), size=(input,output)))
+        matriz.peso = np.random.normal(0,
+                                       np.sqrt( 2/(input+output)),
+                                       size=(input,output))
+                                       
     elif inicializacao == "Uniforme":
         matriz.peso = np.random.uniform(limite_inferior, limite_superior, size=(input, output))
     elif inicializacao == "Normal":
-        matriz.peso = np.random.normal(media,np.sqrt(desvio_padrao), size=(input, output))
+        matriz.peso = np.random.normal(media,
+                                       np.sqrt(desvio_padrao), 
+                                       size=(input, output))
         
     return matriz
+
+
+class MLP:
+    def __init__(self, *camadas):
+        self.camadas = camadas
+
+
+    def __call__(self, x):
+        for pesos, ativacao in self.camadas:
+            x = x @ pesos
+            x = getattr(x, ativacao)()
+
+        return x
+    
+    def parametros(self):
+        return [pesos for pesos, _ in self.camadas]
+    
+    def zerar_gradiente(self):
+        for pesos in self.parametros():
+            pesos.gradiente = np.zeros_like(pesos.gradiente)
+            
+            
+
 
 
 
