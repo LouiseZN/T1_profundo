@@ -242,7 +242,14 @@ class Tensor:
             
     def __call__(self, outro):
         return self @ outro
+    
+    def __getitem__(self, indice): # Permite indexarmos um vetor como no numpy, ou sej podemos ter tensor[2:, 1]
+        resultado = self.peso[indice]
 
+        retorno = Tensor(resultado.shape, (self,))
+        retorno.peso = resultado
+
+        return retorno
 
 
 def Dense(input, output, inicializacao = "He", limite_inferior=0, limite_superior=1, desvio_padrao=1, media=0):
@@ -270,29 +277,68 @@ def Dense(input, output, inicializacao = "He", limite_inferior=0, limite_superio
 class MLP:
     def __init__(self, *camadas):
         self.camadas = camadas
-
+        self.bias = [Tensor((1,pesos.peso.shape[1])) for pesos,_,_ in camadas]
 
     def __call__(self, x):
-        for pesos, ativacao in self.camadas:
-            x = x @ pesos
+        for i, (pesos, tem_bias, ativacao) in enumerate(self.camadas):
+            if tem_bias:
+                x = x @ pesos + self.bias[i]
+            else:
+                x = x @ pesos
             x = getattr(x, ativacao)()
 
         return x
     
     def parametros(self):
-        return [pesos for pesos, _ in self.camadas]
+        retorno = [pesos for pesos, _, _ in self.camadas] + self.bias # Quem diria que somar listas na verdade concatena elas, boa python
+        return retorno
+    
     
     def zerar_gradiente(self):
         for pesos in self.parametros():
             pesos.gradiente = np.zeros_like(pesos.gradiente)
             
             
+class SGD:
+    def __init__(self, mlp, lr):
+        self.lr = lr
+        self.mlp = mlp
+        
+    def passo(self):
+        for parametro in self.mlp.parametros():
+            parametro.peso = parametro.peso - self.lr * parametro.gradiente
+            
+class Adam:
+    def __init__(self, mlp, lr, beta1 = 0.9, beta2 = 0.999, e = 0.0000001):
+        self.lr = lr
+        self.mlp = mlp
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.e = e
+        self.m = [
+            np.zeros_like(p.peso) for p in self.mlp.parametros()
+        ]
 
-
-
-
-
-
+        self.v = [
+            np.zeros_like(p.peso) for p in self.mlp.parametros()
+        ]
+        self.estado = 0
+        
+    def passo(self):
+        self.estado += 1 # iniciando em cima, não preciso somar no expoente durante cada for
+        
+        for i,parametro in enumerate(self.mlp.parametros()):
+            self.m[i] = self.beta1 * self.m[i] + (1-self.beta1) * (parametro.gradiente)
+            self.v[i] = self.beta2 * self.v[i] + (1-self.beta2) * ((parametro.gradiente)**2)
+            
+            m_adam = self.m[i]/(1 - self.beta1**self.estado)
+            v_adam = self.v[i]/(1 - self.beta2**self.estado)
+            
+            parametro.peso = parametro.peso - self.lr * m_adam / (np.sqrt(v_adam) + self.e)
+            
+        
+    
+        
 def MSE(y, y_pred):
     custo = ((y - y_pred)**2).sum()
     return custo / y.peso.size
