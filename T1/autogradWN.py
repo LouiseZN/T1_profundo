@@ -18,7 +18,8 @@ class Tensor:
         
         
     # Função responsavel por permitir o backward pass mesmo sob broadcast
-    def soma_dimensional(self, gradiente, shape):
+    @staticmethod
+    def soma_dimensional(gradiente, shape):
         while gradiente.ndim > len(shape): # Isso elimina dimensões extras adicionadas via boradcasting pelo numpy
             gradiente = gradiente.sum(axis=0)
             
@@ -103,9 +104,6 @@ class Tensor:
     def __rtruediv__(self, other):
         return (self **-1) * other
     
-    def root(self, value = 2): # Podemos aproveitar a implementação em potencia para fazer a radicialização
-        return self ** (1/value)
-    
     def __matmul__(self, outra):
         a = self.peso @ outra.peso
         retorno = Tensor(a.shape, (self, outra))
@@ -142,8 +140,11 @@ class Tensor:
         retorno.regra = regra
 
         return retorno
+
+    def root(self, value = 2): # Podemos aproveitar a implementação em potencia para fazer a radicialização
+            return self ** (1/value)
     
-    def sum(self, axis=0):
+    def sum(self, axis=None):
         resultado = np.sum(self.peso, axis=axis)
         retorno = Tensor(resultado.shape, (self,))
         retorno.peso = resultado
@@ -162,10 +163,64 @@ class Tensor:
         retorno.regra = regra
         
         return retorno
-        
+    
+    
+    
+    # Funções de ativação
 
+    def reLU(self):
+        retorno = Tensor(self.peso.sselfape, (self,))
+        retorno.peso = np.where(self.peso>0, self.peso, 0)
+
+        def regra():
+            self.gradiente += (self.peso > 0) *retorno.gradiente
+
+        retorno.regra = regra
+
+        return retorno
+    
+    
+    def sigmoid(self):
+        resultado = 1 / (1 + np.exp(-self.peso))
+
+        retorno = Tensor(resultado.shape, (self,))
+        retorno.peso = resultado
+
+        def regra():
+            self.gradiente += retorno.gradiente * retorno.peso * (1 - retorno.peso)
+
+        retorno.regra = regra
+
+        return retorno
+    
+    
+    def tanh(self):
+        resultado = np.tanh(self.peso)
+        retorno = Tensor(resultado.shape, (self,))
+        retorno.peso = resultado
         
+        def regra():
+            self.gradiente += (1 - resultado**2) * retorno.gradiente
+            
+        retorno.regra = regra
         
+        return retorno
+    
+    def linear(self): # Essa aqui foi difícil 
+        return self
+    
+    def leakyReLU(self, alpha=0.01):
+        resultado = np.where(self.peso>0, self.peso, alpha*self.peso)
+        retorno = Tensor(self.peso.shape, (self,))
+        retorno.peso = resultado
+        
+        def regra():
+            self.gradiente += np.where(self.peso>0, 1, alpha) * retorno.gradiente
+            
+        retorno.regra = regra
+        
+        return retorno
+
             
     def backward(self): # calulo dos gradientes
         self.gradiente = np.ones_like(self.peso, dtype=float)
@@ -191,11 +246,23 @@ def Dense(input, output, inicializacao, limite_inferior=0, limite_superior=1, de
     if inicializacao == "He":
         matriz.peso = np.random.normal(0,np.sqrt( 2/input, size=(input,output)))
     elif inicializacao == "Xavier":
-        matriz.peso = np.random.normal(0,np.sqrt( 1/input, size=(input,output)))
+        matriz.peso = np.random.normal(0,np.sqrt( 2/(input+output), size=(input,output)))
     elif inicializacao == "Uniforme":
         matriz.peso = np.random.uniform(limite_inferior, limite_superior, size=(input, output))
     elif inicializacao == "Normal":
         matriz.peso = np.random.normal(media,np.sqrt(desvio_padrao), size=(input, output))
         
     return matriz
+
+
+
+
+
+def MSE(y, y_pred):
+    custo = ((y - y_pred)**2).sum()
+    return custo / y.peso.size
+
+def BCE(y, y_pred):
+    custo = -(y * y_pred.log() + (1-y) * (1-y_pred).log())
+    return custo.sum() / y.peso.size
 
