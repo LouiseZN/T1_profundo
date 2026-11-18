@@ -222,6 +222,8 @@ class Tensor:
         retorno.regra = regra
         
         return retorno
+    
+        
 
             
     def backward(self): # calulo dos gradientes
@@ -243,7 +245,7 @@ class Tensor:
     def __call__(self, outro):
         return self @ outro
     
-    # Permite indexarmos um vetor como no numpy, ou sej podemos ter tensor[2:, 1]
+    # Permite indexarmos um vetor como no numpy, ou seja podemos ter tensor[2:, 1]
     def __getitem__(self, indice):
         resultado = self.peso[indice]
 
@@ -305,6 +307,43 @@ class MLP:
             pesos.gradiente = np.zeros_like(pesos.gradiente)
             
             
+    def save(self, caminho):
+        dados = {}
+
+        for i, (pesos, tem_bias, ativacao) in enumerate(self.camadas):
+            dados[f"pesos_{i}"] = pesos.peso
+            dados[f"bias_{i}"] = self.bias[i].peso
+            dados[f"tem_bias_{i}"] = tem_bias
+            dados[f"ativacao_{i}"] = ativacao
+
+        dados["n_camadas"] = len(self.camadas)
+
+        np.savez_compressed(caminho, **dados)
+
+    @classmethod
+    def load(cls, caminho):
+        with np.load(caminho) as dados:
+            camadas = []
+            n_camadas = int(dados["n_camadas"])
+
+            for i in range(n_camadas):
+                pesos = Tensor(dados[f"pesos_{i}"].shape)
+                pesos.peso = dados[f"pesos_{i}"].copy()
+
+                tem_bias = bool(dados[f"tem_bias_{i}"])
+                ativacao = str(dados[f"ativacao_{i}"])
+
+                camadas.append((pesos, tem_bias, ativacao))
+
+            modelo = cls(*camadas)
+
+            for i in range(n_camadas):
+                modelo.bias[i].peso = dados[f"bias_{i}"].copy()
+
+        return modelo
+
+            
+            
 class SGD:
     def __init__(self, mlp, lr):
         self.lr = lr
@@ -351,5 +390,39 @@ def MSE(y, y_pred):
 
 def BCE(y, y_pred):
     custo = -(y * y_pred.log() + (1-y) * (1-y_pred).log())
-    return custo.sum() / y.peso.size
+    return custo.sum()
 
+
+
+def SoftmaxCCE(y, logits):
+    z = logits.peso
+    N = z.shape[0]
+
+    z_estavel = z - np.max(z, axis=-1, keepdims=True)
+
+    exp_z = np.exp(z_estavel)
+    probabilidades = exp_z / exp_z.sum(axis=-1, keepdims=True)
+
+    log_probs = z_estavel - np.log(
+        exp_z.sum(axis=-1, keepdims=True)
+    )
+
+    indices = y.peso.astype(int).reshape(-1)
+
+    # Soma das perdas, sem média
+    custo = -log_probs[np.arange(N), indices].sum()
+
+    retorno = Tensor(())
+    retorno.peso = custo
+
+    def regra():
+        grad = probabilidades.copy()
+        grad[np.arange(N), indices] -= 1
+
+        # Sem divisão por N
+        logits.gradiente += grad * retorno.gradiente
+
+    retorno.regra = regra
+    retorno.anteriores = {logits}
+
+    return retorno
