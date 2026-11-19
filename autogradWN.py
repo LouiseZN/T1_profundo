@@ -166,6 +166,24 @@ class Tensor:
         
         return retorno
     
+    def exp(self, base="euler"):
+        if base == "euler":
+            base = np.e
+    
+        resultado = base ** self.peso
+    
+        retorno = Tensor(resultado.shape, (self,))
+        retorno.peso = resultado
+    
+        def regra():
+            self.gradiente += (
+                np.log(base) * resultado * retorno.gradiente
+            )
+    
+        retorno.regra = regra
+    
+        return retorno
+    
     
     
     # Funções de ativação
@@ -260,7 +278,7 @@ class Tensor:
         return retorno
 
 
-def Dense(input, output, inicializacao = "He", limite_inferior=0, limite_superior=1, desvio_padrao=1, media=0):
+def Dense(input, output, inicializacao = "He", limite_inferior=0, limite_superior=1, variancia=1, media=0):
     matriz = Tensor([input, output])
     
     if inicializacao == "He":
@@ -276,16 +294,48 @@ def Dense(input, output, inicializacao = "He", limite_inferior=0, limite_superio
         matriz.peso = np.random.uniform(limite_inferior, limite_superior, size=(input, output))
     elif inicializacao == "Normal":
         matriz.peso = np.random.normal(media,
-                                       np.sqrt(desvio_padrao), 
+                                       np.sqrt(variancia), 
                                        size=(input, output))
         
     return matriz
 
 
 class MLP:
-    def __init__(self, *camadas):
+    def __init__(self, *camadas, amostras_monitoramento=1000):
         self.camadas = camadas
         self.bias = [Tensor((1,pesos.peso.shape[1])) for pesos,_,_ in camadas]
+
+        # Infos para plotar historico de ativações e gradientes
+        self.monitoramento = False
+        # Quantos valores por camada guardamos a cada passo. Guardar todos os pesos a cada amostra
+        # ocupava varios GB por época; uma amostra aleatória já basta para o histograma
+        self.amostras_monitoramento = amostras_monitoramento
+        self._rng = np.random.default_rng() # gerador proprio para não mexer na aleatoriedade global do treino
+        self.limpar_historicos()
+
+    def limpar_historicos(self):
+        # Cada posição é uma lista de arrays numpy (um array por passo), concatenados só na hora de plotar
+        self.historico_ativacoes = [[] for _ in self.camadas]
+        self.historico_gradientes = [[] for _ in self.camadas]
+
+    def _amostrar(self, valores):
+        valores = valores.ravel()
+        if valores.size > self.amostras_monitoramento:
+            indices = self._rng.integers(0, valores.size, self.amostras_monitoramento)
+            return valores[indices] # indexação com array já cria uma cópia
+        return valores.copy()
+
+    @staticmethod
+    def _juntar(lista_de_arrays):
+        if len(lista_de_arrays) == 0:
+            return np.array([])
+        return np.concatenate(lista_de_arrays)
+
+    def obter_ativacoes(self, camada):
+        return self._juntar(self.historico_ativacoes[camada])
+
+    def obter_gradientes(self, camada):
+        return self._juntar(self.historico_gradientes[camada])
 
     def __call__(self, x):
         for i, (pesos, tem_bias, ativacao) in enumerate(self.camadas):
@@ -294,6 +344,9 @@ class MLP:
             else:
                 x = x @ pesos
             x = getattr(x, ativacao)()
+            
+            if self.monitoramento:
+                self.historico_ativacoes[i].append(self._amostrar(x.peso))
 
         return x
     
@@ -306,6 +359,22 @@ class MLP:
         for pesos in self.parametros():
             pesos.gradiente = np.zeros_like(pesos.gradiente)
             
+    def ativar_monitoramento(self):
+        self.monitoramento = True
+
+
+    def desativar_monitoramento(self):
+        self.monitoramento = False
+
+
+    def registrar_gradientes(self):
+        if not self.monitoramento:
+            return
+
+        for i, (pesos, _, _) in enumerate(self.camadas):
+            self.historico_gradientes[i].append(self._amostrar(pesos.gradiente))
+            
+              
             
     def save(self, caminho):
         dados = {}
@@ -350,6 +419,8 @@ class SGD:
         self.mlp = mlp
         
     def passo(self):
+        self.mlp.registrar_gradientes()
+        
         for parametro in self.mlp.parametros():
             parametro.peso = parametro.peso - self.lr * parametro.gradiente
             
@@ -370,6 +441,7 @@ class Adam:
         self.estado = 0
         
     def passo(self):
+        self.mlp.registrar_gradientes()
         self.estado += 1 # iniciando em cima, não preciso somar no expoente durante cada for
         
         for i,parametro in enumerate(self.mlp.parametros()):
